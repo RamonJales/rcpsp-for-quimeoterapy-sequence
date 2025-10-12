@@ -1,0 +1,40 @@
+************************************************************************
+* *
+* file:../../instances/folfiri_multirecurso.sm                  *
+* - Instance: FOLFIRI protocol with expanded resources            *
+* - nr. of activities:   10 (incl. source/sink)                   *
+* - nr. of renewable resources: 4 (R1:Nurse,R2:Chair,R3:Doctor,R4:Pharmacist) *
+* *
+************************************************************************
+jobs (incl. supersource/sink ): 10
+horizon:                         100
+renewable resources:             4
+
+PRECEDENCE RELATIONS:
+- jobnr. mode successors...
+  1   1   3    2   3   4
+  2   1   1    5
+  3   1   1    5
+  4   1   1    6
+  5   1   1    6
+  6   1   1    7
+  7   1   1    8
+  8   1   1    9
+  9   1   1   10
+ 10   1   0
+
+REQUESTS/DURATIONS:
+- jobnr. mode duration R1 R2 R3 R4
+  1   1   0    0  0  0  0
+  2   1   2    1  0  0  0      
+  3   1   2    0  0  1  0      # <-- MODIFICADO: Atividade 3 agora requer 1 Médico (R3)
+  4   1   4    0  0  0  1      # <-- MODIFICADO: Atividade 4 agora requer 1 Farmacêutico (R4)
+  5   1   1    1  1  0  0
+  6   1   6    1  1  0  0
+  7   1   8    1  1  0  0
+  8   1   1    1  1  0  0
+  9   1   2    1  1  0  0
+ 10   1   0    0  0  0  0
+
+RESOURCEAVAILABILITIES:
+8 8 4 4
