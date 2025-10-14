@@ -2,7 +2,6 @@ from algorithm import gerar_cronograma
 from view_calendar import imprimir_cronograma
 from parse_sm import parse_sm_file
 
-
 n_pacientes = input("Digite o número de pacientes (5, 25, 40, 50): ")
 
 if n_pacientes not in ['5', '25', '40', '50']:
@@ -16,7 +15,8 @@ atividades, precedencias, recursos = parse_sm_file(caminho_do_arquivo)
 
 incompatibilidades = [
     (0, 1),
-    (2, 3)  
+    (2, 3),
+    (4, 5)
 ]
 
 cronograma = gerar_cronograma(atividades, recursos, precedencias, incompatibilidades)
