@@ -93,3 +93,11 @@ def gerar_cronograma(atividades, recursos, precedencias, incompatibilidades):
     return cronograma
 
 
+
+def calcular_makespan(cronograma, atividades):
+    """Calcula makespan de um cronograma."""
+    makespan = 0
+    for job_id, start_time in cronograma.items():
+        finish_time = start_time + atividades[job_id]['duracao']
+        makespan = max(makespan, finish_time)
+    return makespan
