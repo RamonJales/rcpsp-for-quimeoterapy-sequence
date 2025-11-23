@@ -21,3 +21,7 @@ nomia de recursos e aumento da agilidade na aplicação dos tratamentos de quimi
 O algoritmo irá pedir que o usuário digite o número de pacientes que ele quer testar, a partir dos arquivos .sm que existem no trabalho. 
 Sobre as incopatibilidades, não há instâncias definidas na literatura à respeito delas. Além disso, elas não está não estão definidas nos
 arquivos .sm, sendo assim, o usuário pode alterar o código para testar diversas incompatibilidades diferentes. 
+
+# Referências
+- [A System for Generation and Visualization of Resource-Constrained Projects](https://imae.udg.edu/~mbofill/Site/Miquel_Bofills_Home_Page_files/bofill-ccia14.pdf)
+- For a more visual introduction, see also this website: [PM Knowledge Center](https://www.pmknowledgecenter.be/dynamic_scheduling/baseline/optimizing-regular-scheduling-objectives-schedule-generation-schemes)
