@@ -121,3 +121,85 @@ struct individual
     void restore_precedence_of_activity_list() {}
 };
 
+struct project
+{
+    /// @brief gerador de número aleatório (Mersene Twistter)
+    mt19937 rng;
+
+    /// @brief dados do problema
+    int number_of_jobs;
+    int number_of_nondummy_jobs;
+    int number_of_renewable_resources;
+    int horizon;
+
+    vector<int> renewable_resource_availability;
+    vector<individual> population;
+    
+    vector<node> nodes;
+
+    project() {
+        random_device rd;
+        rng = mt19937(rd());
+    }
+
+
+    /**
+     * @brief Calcula o Caminho Crítico (CPM).
+     * Preenche ES, EF, LS, LF de todos os nós.
+     * Necessário para o método de amostragem da população inicial.
+     */
+    void forward_backward_scheduling() {
+        if(nodes.empty()) return;
+
+        calculate_forward_pass();
+        calculate_backward_pass();
+    }
+
+    private:
+    // --- Métodos Auxiliares Internos do project ---
+
+    /**
+     * @brief Forward Pass: Calcula Earliest Start (ES) e Earliest Finish (EF).
+     * Itera de 0 a N-1.
+     */
+    void calculate_forward_pass() {
+        nodes[0].earliest_start = 0;
+        nodes[0].earliest_finish = 0;
+
+        for (int i = 1; i < number_of_jobs; i++) {
+            int max_pred_ef = 0;
+
+            for (int predecessor_id : nodes[i].predecessors) {
+                if (nodes[predecessor_id].earliest_finish > max_pred_ef) {
+                    max_pred_ef = nodes[predecessor_id].earliest_finish;
+                }
+            }
+
+            nodes[i].earliest_start = max_pred_ef;
+            nodes[i].earliest_finish = max_pred_ef + nodes[i].duration_time;
+        }
+    }
+
+    /**
+     * @brief Backward Pass: Calcula Latest Start (LS) e Latest Finish (LF).
+     * Itera de N-1 a 0.
+     */
+    void calculate_backward_pass() {
+        node& finish_node = nodes[number_of_jobs - 1];
+        finish_node.latest_start = horizon;
+        finish_node.latest_finish = horizon;
+
+        for (int i = number_of_jobs - 2; i >= 0; i--) {
+            int min_succ_ls = horizon;
+
+            for (int successor_id : nodes[i].successors) {
+                if(nodes[successor_id].latest_start < min_succ_ls) {
+                    min_succ_ls = nodes[successor_id].latest_start;
+                }
+            }
+
+            nodes[i].latest_start = min_succ_ls - nodes[i].duration_time;
+            nodes[i].latest_finish = min_succ_ls;
+        }
+    }
+};
