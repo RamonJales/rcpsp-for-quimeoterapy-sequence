@@ -23,6 +23,5 @@ Sobre as incopatibilidades, não há instâncias definidas na literatura à resp
 arquivos .sm, sendo assim, o usuário pode alterar o código para testar diversas incompatibilidades diferentes. 
 
 # Referências
-- [A System for Generation and
-Visualization of Resource-Constrained
-Projects](https://imae.udg.edu/~mbofill/Site/Miquel_Bofills_Home_Page_files/bofill-ccia14.pdf)
+- [A System for Generation and Visualization of Resource-Constrained Projects](https://imae.udg.edu/~mbofill/Site/Miquel_Bofills_Home_Page_files/bofill-ccia14.pdf)
+- For a more visual introduction, see also this website: [PM Knowledge Center](https://www.pmknowledgecenter.be/dynamic_scheduling/baseline/optimizing-regular-scheduling-objectives-schedule-generation-schemes)
