@@ -407,6 +407,121 @@ struct project {
     }
 
     /**
+     * @brief Create Initial Population: Cria a população inicial de um determinado tamanho.
+     */
+    vector<individual> create_initial_population(int population_size) {
+
+        forward_backward_scheduling();
+
+        vector<individual> population;
+
+        individual dummy;
+
+        vector<int> nodes_id_sorted_by_min_lft;
+        for (auto &nd : nodes)
+            nodes_id_sorted_by_min_lft.push_back(nd.id);
+
+        sort(nodes_id_sorted_by_min_lft.begin(),
+                nodes_id_sorted_by_min_lft.end(),
+                [&](int a, int b){
+                    return nodes[a].latest_finish < nodes[b].latest_finish;
+                });
+
+        dummy.activity_list = nodes_id_sorted_by_min_lft;
+        population.push_back(dummy);
+
+
+        for (int p = 1; p < population_size; p++) {
+
+            individual new_dummy;
+
+            vector<int> unselected_nodes;
+            for (auto &nd : nodes) {
+                unselected_nodes.push_back(nd.id);
+            }
+
+            vector<int> selected_nodes;
+
+            int starting_node = unselected_nodes[0];
+            selected_nodes.push_back(starting_node);
+            unselected_nodes.erase(unselected_nodes.begin());
+
+            while (!unselected_nodes.empty()) {
+
+                vector<int> possibles;
+
+                // === encontrar possíveis ===
+                for (int node_id : unselected_nodes) {
+
+                    bool all_in_selected = true;
+                    for (int predecessor : nodes[node_id].predecessors) {
+
+                        if (std::find(selected_nodes.begin(),
+                                    selected_nodes.end(),
+                                    predecessor) == selected_nodes.end()) {
+
+                            all_in_selected = false;
+                            break;
+                        }
+                    }
+
+                    if (all_in_selected)
+                        possibles.push_back(node_id);
+                }
+
+                // === calcular probabilidades ===
+                int max_lft = -1;
+                for (int node_id : possibles) {
+                    max_lft = max(max_lft, nodes[node_id].latest_finish);
+                }
+
+                int total = 0;
+                for (int node_id : possibles) {
+                    total += max_lft - nodes[node_id].latest_finish + 1;
+                }
+                    
+                for (int node_id : possibles) {
+                    nodes[node_id].selection_probability =
+                        double(max_lft - nodes[node_id].latest_finish + 1) / total;
+                }
+                    
+                double total_prob = 0.0;
+                for (int node_id : possibles) {
+                    total_prob += nodes[node_id].selection_probability;
+                }
+                    
+                uniform_real_distribution<double> dist(0.0, total_prob);
+                double r = dist(rng);
+
+                double acc = 0.0;
+                int selected_node = possibles.back();
+
+                for (int nid : possibles) {
+                    acc += nodes[nid].selection_probability;
+                    if (r < acc) {
+                        selected_node = nid;
+                        break;
+                    }
+                }
+
+                selected_nodes.push_back(selected_node);
+                unselected_nodes.erase(
+                    std::remove(unselected_nodes.begin(),
+                                unselected_nodes.end(),
+                                selected_node),
+                    unselected_nodes.end()
+                );
+            }
+
+            new_dummy.activity_list = selected_nodes;
+            population.push_back(new_dummy);
+        }
+
+        return population;
+    }
+
+
+    /**
      * @brief Concatena o caminho do diretório com o nome do arquivo de forma
      * segura. O padrão do arquivo é para linux.
      * * Verifica se o caminho já possui uma barra separadora no final. Se não
