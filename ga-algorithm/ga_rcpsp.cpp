@@ -358,54 +358,6 @@ struct project {
         cout << "==========================================================" << endl;
     }
 
-    private:
-    // --- Métodos Auxiliares Internos do project ---
-
-    /**
-     * @brief Forward Pass: Calcula Earliest Start (ES) e Earliest Finish (EF).
-     * Itera de 0 a N-1.
-     */
-    void calculate_forward_pass() {
-        nodes[0].earliest_start = 0;
-        nodes[0].earliest_finish = 0;
-
-        for (int i = 1; i < number_of_jobs; i++) {
-            int max_pred_ef = 0;
-
-            for (int predecessor_id : nodes[i].predecessors) {
-                if (nodes[predecessor_id].earliest_finish > max_pred_ef) {
-                    max_pred_ef = nodes[predecessor_id].earliest_finish;
-                }
-            }
-
-            nodes[i].earliest_start = max_pred_ef;
-            nodes[i].earliest_finish = max_pred_ef + nodes[i].duration_time;
-        }
-    }
-
-    /**
-     * @brief Backward Pass: Calcula Latest Start (LS) e Latest Finish (LF).
-     * Itera de N-1 a 0.
-     */
-    void calculate_backward_pass() {
-        node &finish_node = nodes[number_of_jobs - 1];
-        finish_node.latest_start = horizon;
-        finish_node.latest_finish = horizon;
-
-        for (int i = number_of_jobs - 2; i >= 0; i--) {
-            int min_succ_ls = horizon;
-
-            for (int successor_id : nodes[i].successors) {
-                if (nodes[successor_id].latest_start < min_succ_ls) {
-                    min_succ_ls = nodes[successor_id].latest_start;
-                }
-            }
-
-            nodes[i].latest_start = min_succ_ls - nodes[i].duration_time;
-            nodes[i].latest_finish = min_succ_ls;
-        }
-    }
-
     /**
      * @brief Create Initial Population: Cria a população inicial de um determinado tamanho.
      */
@@ -518,6 +470,122 @@ struct project {
         }
 
         return population;
+    }
+
+    /**
+     * @brief Crossover: Realiza os casamentos para gerar novas soluções para uma determinada população.
+     */
+    vector<individual> crossover(vector<individual> population) {
+        random_device rd;
+        mt19937 rng(rd());
+        shuffle(population.begin(), population.end(), rng);
+
+        int half = population.size() / 2;
+        vector<individual> mothers(population.begin(), population.begin() + half);
+        vector<individual> fathers(population.begin() + half, population.end());
+
+        vector<individual> offspring;
+        size_t n = min(mothers.size(), fathers.size());
+
+        int max_q = number_of_nondummy_jobs - 1;
+        uniform_int_distribution<int> dist(1, max_q);
+        int q = dist(rng);
+
+        for (size_t i = 0; i < n; i++) {
+            auto& mother = mothers[i];
+            auto& father = fathers[i];
+
+            individual daughter;
+
+            vector<int> mother_input_d(mother.activity_list.begin(), 
+                mother.activity_list.begin() + q);
+
+            vector<int> father_input_d;
+            for (int activity : father.activity_list) {
+                if (find(mother_input_d.begin(), mother_input_d.end(), activity) == mother_input_d.end()) {
+                    father_input_d.push_back(activity);
+                }
+            }
+
+            daughter.activity_list = mother_input_d;
+            daughter.activity_list.insert(
+                daughter.activity_list.end(),
+                father_input_d.begin(), 
+                father_input_d.end()
+            );
+            offspring.push_back(daughter);
+
+            individual son;
+
+            vector<int> father_input_s(father.activity_list.begin(),
+                father.activity_list.begin() + q);
+
+            vector<int> mother_input_s;
+            for (int activity : mother.activity_list) {
+                if (find(father_input_s.begin(), father_input_s.end(), activity) == father_input_s.end()) {
+                    mother_input_s.push_back(activity);
+                }
+            }
+
+            son.activity_list = father_input_s;
+            son.activity_list.insert(
+                son.activity_list.end(),
+                mother_input_s.begin(), 
+                mother_input_s.end()
+            );
+            offspring.push_back(son);
+        }
+
+        return offspring;
+    }
+
+
+    private:
+    // --- Métodos Auxiliares Internos do project ---
+
+    /**
+     * @brief Forward Pass: Calcula Earliest Start (ES) e Earliest Finish (EF).
+     * Itera de 0 a N-1.
+     */
+    void calculate_forward_pass() {
+        nodes[0].earliest_start = 0;
+        nodes[0].earliest_finish = 0;
+
+        for (int i = 1; i < number_of_jobs; i++) {
+            int max_pred_ef = 0;
+
+            for (int predecessor_id : nodes[i].predecessors) {
+                if (nodes[predecessor_id].earliest_finish > max_pred_ef) {
+                    max_pred_ef = nodes[predecessor_id].earliest_finish;
+                }
+            }
+
+            nodes[i].earliest_start = max_pred_ef;
+            nodes[i].earliest_finish = max_pred_ef + nodes[i].duration_time;
+        }
+    }
+
+    /**
+     * @brief Backward Pass: Calcula Latest Start (LS) e Latest Finish (LF).
+     * Itera de N-1 a 0.
+     */
+    void calculate_backward_pass() {
+        node &finish_node = nodes[number_of_jobs - 1];
+        finish_node.latest_start = horizon;
+        finish_node.latest_finish = horizon;
+
+        for (int i = number_of_jobs - 2; i >= 0; i--) {
+            int min_succ_ls = horizon;
+
+            for (int successor_id : nodes[i].successors) {
+                if (nodes[successor_id].latest_start < min_succ_ls) {
+                    min_succ_ls = nodes[successor_id].latest_start;
+                }
+            }
+
+            nodes[i].latest_start = min_succ_ls - nodes[i].duration_time;
+            nodes[i].latest_finish = min_succ_ls;
+        }
     }
 
 
