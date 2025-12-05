@@ -539,6 +539,27 @@ struct project {
         return offspring;
     }
 
+    vector<individual> mutate(vector<individual> offsprings, double mutation_probability) {
+        random_device rd;
+        mt19937 rng(rd());
+
+        for (auto &individual : offsprings) {
+            for (size_t i = 0; i + 1 < individual.activity_list.size(); i++) {
+                uniform_int_distribution<double> dist(0.0, 1.0);
+                double r = dist(rng);
+
+                if (r < mutation_probability) {
+                    vector<int> stored_current_activity_list = individual.activity_list;
+                    swap(individual.activity_list[i], individual.activity_list[i + 1]);
+                    if (!individual.check_precedence_feasibility(nodes)) {
+                        individual.activity_list = stored_current_activity_list;
+                    }      
+                }
+            }
+        }
+
+        return offsprings;
+    }
 
     private:
     // --- Métodos Auxiliares Internos do project ---
