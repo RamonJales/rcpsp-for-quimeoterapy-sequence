@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unordered_set>
 
 using namespace std;
 
@@ -559,6 +560,164 @@ struct project {
         }
 
         return offsprings;
+    }
+
+    pair<vector<individual>, individual> rank_and_reduce(vector<individual> population, 
+        vector<individual> offsprings, individual incumbent, void (*sgs)(individual individual)) {
+
+        for (individual individual : offsprings) {
+            sgs(individual);
+        }
+
+        vector<individual> new_population = population;
+        new_population.insert(new_population.end(), offsprings.begin(), offsprings.end());
+
+        sort(new_population.begin(), new_population.end(), 
+            [](const individual& a, const individual& b) { 
+                return a.fitness < b.fitness;
+        });
+
+        if (new_population.size() > population.size()) {
+            new_population.resize(population.size());
+        }
+
+        if (new_population[0].fitness < incumbent.fitness) {
+            incumbent = new_population[0];
+        }
+
+        return {new_population, incumbent};
+        
+    }
+
+        void serial_SGS(individual individual) {
+
+            for (auto& node : nodes) {
+                node.priority_value = find(individual.activity_list.begin(), 
+                    individual.activity_list.end(), node) - individual.activity_list.begin();
+                node.start_time = -1;
+                node.finish_time = -1;
+                node.started = false;
+                node.finished = false;
+                node.scheduled = false;  
+            }
+
+            vector<vector<int>> R_kt;
+
+            for (int k : renewable_resource_availability) {
+                R_kt.push_back(vector<int>(horizon, k));
+            }
+
+            unordered_set<int> scheduled_activities;
+            node& starting_node = nodes[0];
+            starting_node.start_time = 0;
+            starting_node.finish_time = 0;
+            starting_node.started = true;
+            starting_node.finished = true;
+            starting_node.scheduled = true;
+
+            scheduled_activities.insert(starting_node.id);
+
+            vector<int> eligibles = starting_node.successors;  
+            sort(eligibles.begin(), eligibles.end(), [&](int a, int b) {
+                return nodes[a].priority_value < nodes[b].priority_value;
+            });
+
+            vector<int> resource_profile_changes;
+            resource_profile_changes.push_back(0);
+
+            while (scheduled_activities.size() != number_of_jobs) {
+
+                int selected_id = eligibles[0];
+                node& selected_node = nodes[selected_id];
+
+                int current_t = -1;
+                for (int pred_id : selected_node.predecessors) {
+                    node& pred = nodes[pred_id];
+                    current_t = max(current_t, pred.start_time + pred.duration_time);
+                }
+
+                while (!selected_node.scheduled) {
+                    bool violation = false;
+
+                    for (int k = 0; k < number_of_renewable_resources; k++) {
+                        for (int t = current_t; t < current_t + selected_node.duration_time; t++) {
+
+                            if (selected_node.renewable_resource_requirements[k] > R_kt[k][t]) {
+                                violation = true;
+
+                                int new_t = INT_MAX;
+                                for (int c : resource_profile_changes) {
+                                    if (c > current_t) new_t = min(new_t, c);
+                                }
+                                current_t = new_t;
+                                break;
+                            }
+                        }
+                        if (violation) break;
+                    }
+
+                    if (!violation) {
+
+                        selected_node.scheduled  = true;
+                        selected_node.start_time = current_t;
+                        selected_node.finish_time = current_t + selected_node.duration_time;
+                        selected_node.started = true;
+                        selected_node.finished = true;
+
+                        for (int k = 0; k < number_of_renewable_resources; k++) {
+                            for (int t = current_t; t < current_t + selected_node.duration_time; t++) {
+                                R_kt[k][t] -= selected_node.renewable_resource_requirements[k];
+                            }
+                        }
+
+                        resource_profile_changes.clear();
+                        for (node& nd : nodes) {
+                            if (nd.finish_time >= 0)
+                                resource_profile_changes.push_back(nd.finish_time);
+                        }
+
+                        sort(resource_profile_changes.begin(), resource_profile_changes.end());
+                        resource_profile_changes.erase(
+                            unique(resource_profile_changes.begin(), resource_profile_changes.end()),
+                            resource_profile_changes.end()
+                        );
+                    }
+                }
+
+                scheduled_activities.insert(selected_node.id);
+
+                eligibles.erase(
+                    remove(eligibles.begin(), eligibles.end(), selected_node.id),
+                    eligibles.end()
+                );
+
+                for (int succ_id : selected_node.successors) {
+                    node& succ = nodes[succ_id];
+
+                    bool all_preds_scheduled = true;
+                    for (int pred_id : succ.predecessors) {
+                        if (!nodes[pred_id].scheduled) {
+                            all_preds_scheduled = false;
+                            break;
+                        }
+                    }
+
+                    if (all_preds_scheduled &&
+                        find(eligibles.begin(), eligibles.end(), succ_id) == eligibles.end()) {
+                        eligibles.push_back(succ_id);
+                    }
+                }
+
+                sort(eligibles.begin(), eligibles.end(), [&](int a, int b){
+                    return nodes[a].priority_value < nodes[b].priority_value;
+                });
+            }
+
+            int best = -1;
+            for (int id : scheduled_activities) {
+                best = max(best, nodes[id].finish_time);
+            }
+            individual.fitness = best;
     }
 
     private:
