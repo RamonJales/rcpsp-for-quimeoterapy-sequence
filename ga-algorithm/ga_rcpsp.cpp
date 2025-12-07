@@ -948,7 +948,8 @@ struct project {
             return instance_name;
 
         // Se não terminar com '/', adiciona.
-        // Nota: Se terminar com '\' (Windows), vai virar "\/", mas o Windows aceita.
+        // Nota: Se terminar com '\' (Windows), vai virar "\/", mas o Windows
+        // aceita.
         if (instance_filepath.back() != '/') {
             instance_filepath += "/";
         }
