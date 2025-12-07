@@ -3,7 +3,9 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <tuple>
 #include <random>
+#include <cctype>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -734,7 +736,18 @@ struct project {
             matriz_recurso_kt.push_back(vector<int>(horizon + 1, k)); 
         }
 
-        int scheduled_count = 0;
+        // Marcar o nó fonte (job 1, index 0) como já agendado no tempo 0.
+        // Sem isso, o laço de elegíveis nunca irá considerar sucessores do
+        // nó fonte porque sua finish_time inicialmente é -1, levando o
+        // algoritmo a avançar o tempo até o horizonte sem agendar nada.
+        if (!nodes.empty()) {
+            node &starting_node = nodes[0];
+            starting_node.start_time = 0;
+            starting_node.finish_time = 0;
+            starting_node.scheduled = true;
+        }
+
+        int scheduled_count = 1; // já contamos o nó fonte
         int current_time = 0;
 
         vector<int> active_jobs;
@@ -842,42 +855,126 @@ struct project {
         individual.fitness = max_finish;
     }
 
-    double solve_instance_via_ga(int pop_size, int generations, double mut_prob, void (project::*sgs)(individual &)) {
-        
+    individual solve_instance_via_ga(int pop_size, int generations, double mut_prob, void (project::*sgs)(individual &)) {
+
         this->population.clear();
         this->population = create_initial_population(pop_size);
-        
-        individual best_global; 
-        
+
+        individual best_global;
+
         // Avaliação inicial
-        for(size_t i = 0; i < population.size(); ++i) {
+        for (size_t i = 0; i < population.size(); ++i) {
             auto &ind = population[i];
             (this->*sgs)(ind);
-            if(ind.fitness < best_global.fitness) best_global = ind;
-            if((i+1) % 10 == 0) cout << "[GA] Avaliado " << (i+1) << "/" << population.size() << " individuos" << endl;
+            // preencher mapas de tempos no indivíduo para posterior visualização
+            ind.start_times.clear(); ind.finish_times.clear();
+            for (const auto &nd : nodes) {
+                ind.start_times[nd.id] = nd.start_time;
+                ind.finish_times[nd.id] = nd.finish_time;
+            }
+            if (ind.fitness < best_global.fitness) best_global = ind;
+            if ((i + 1) % 10 == 0) cout << "[GA] Avaliado " << (i + 1) << "/" << population.size() << " individuos" << endl;
         }
 
-        for(int g=0; g<generations; ++g) {
+        for (int g = 0; g < generations; ++g) {
             vector<individual> off = crossover(population);
-            
+
             cout << "[GA]   Mutacao..." << endl;
             off = mutate(off, mut_prob);
-            
-            for(auto &ind : off) (this->*sgs)(ind);
+
+            for (auto &ind : off) {
+                (this->*sgs)(ind);
+                ind.start_times.clear(); ind.finish_times.clear();
+                for (const auto &nd : nodes) {
+                    ind.start_times[nd.id] = nd.start_time;
+                    ind.finish_times[nd.id] = nd.finish_time;
+                }
+            }
 
             // Elitismo + Seleção (Rank and Reduce Simplificado)
             population.insert(population.end(), off.begin(), off.end());
-            sort(population.begin(), population.end(), [](const individual& a, const individual& b){
+            sort(population.begin(), population.end(), [](const individual &a, const individual &b) {
                 return a.fitness < b.fitness;
             });
             population.resize(pop_size);
 
-            if(population[0].fitness < best_global.fitness) {
+            if (population[0].fitness < best_global.fitness) {
                 best_global = population[0];
             }
         }
         cout << "[GA] Algoritmo finalizado! Melhor fitness: " << best_global.fitness << endl;
-        return best_global.fitness;
+        return best_global;
+    }
+
+    
+    // --- Funções utilitárias para visualização do cronograma ---
+    int extract_num_patients_from_filename(const string &filename) {
+        // tenta encontrar um número antes da palavra 'pacientes' ou 'paciente' no nome do arquivo
+        size_t pos = filename.find("pacientes");
+        if (pos == string::npos) pos = filename.find("paciente");
+        if (pos == string::npos) return 0;
+
+        // procurar dígitos à esquerda
+        int i = (int)pos - 1;
+        while (i >= 0 && !isdigit((unsigned char)filename[i])) i--;
+        if (i < 0) return 0;
+        int j = i;
+        while (j >= 0 && isdigit((unsigned char)filename[j])) j--;
+
+        string num = filename.substr(j + 1, i - j);
+        try {
+            return stoi(num);
+        } catch (...) {
+            return 0;
+        }
+    }
+
+    void print_schedule_console(individual &ind, const string &instance_name) {
+        cout << "\n--- Cronograma para instância: " << instance_name << " ---" << endl;
+
+        int num_patients = extract_num_patients_from_filename(instance_name);
+        int total_real_activities = number_of_jobs - 2; // remover source/sink
+
+        if (num_patients > 0 && total_real_activities % num_patients == 0) {
+            int activities_per_patient = total_real_activities / num_patients;
+            vector<vector<tuple<int,int,int,int>>> by_patient(num_patients + 1);
+
+            for (const auto &p : ind.start_times) {
+                int id = p.first; // 0-based
+                if (id == 0 || id == number_of_jobs - 1) continue; // ignorar source/sink
+                int start = p.second;
+                int finish = ind.finish_times.count(id) ? ind.finish_times.at(id) : (start + nodes[id].duration_time);
+                int printed_id = id + 1; // para compatibilidade com parser (1-based)
+                int paciente_num = ((printed_id - 2) / activities_per_patient) + 1;
+                if (paciente_num < 1 || paciente_num > num_patients) paciente_num = 0;
+                if (paciente_num == 0) continue;
+                by_patient[paciente_num].push_back(make_tuple(printed_id, start, finish, nodes[id].duration_time));
+            }
+
+            for (int p = 1; p <= num_patients; ++p) {
+                cout << "\nPaciente " << p << ":" << endl;
+                auto &list = by_patient[p];
+                sort(list.begin(), list.end(), [](const tuple<int,int,int,int> &a, const tuple<int,int,int,int> &b){
+                    return get<1>(a) < get<1>(b);
+                });
+                for (auto &t : list) {
+                    cout << "  Atividade " << get<0>(t) << " | Inicia: " << get<1>(t) << " | Termina: " << get<2>(t) << " | Dur: " << get<3>(t) << endl;
+                }
+            }
+        } else {
+            // fallback: imprime lista plana de tarefas com tempos
+            cout << "(Formato padrão) Jobs | Start | Finish | Dur" << endl;
+            vector<int> ids;
+            for (const auto &p : ind.start_times) ids.push_back(p.first);
+            sort(ids.begin(), ids.end());
+            for (int id : ids) {
+                int start = ind.start_times.at(id);
+                int finish = ind.finish_times.count(id) ? ind.finish_times.at(id) : (start + nodes[id].duration_time);
+                cout << "Job " << id + 1 << " | " << start << " | " << finish << " | " << nodes[id].duration_time << endl;
+            }
+        }
+
+        cout << "--- Fim do cronograma ---\n" << endl;
     }
 
     private:
@@ -1027,12 +1124,14 @@ int main() {
 
                 // Medir tempo
                 auto start = chrono::high_resolution_clock::now();
-                
-                // Rodar GA
-                double result = p.solve_instance_via_ga(pop_size, gens, mut, &project::parallel_SGS);
-                
+
+                // Rodar GA (retorna o indivíduo ótimo com cronograma preenchido)
+                individual best = p.solve_instance_via_ga(pop_size, gens, mut, &project::parallel_SGS);
+
                 auto end = chrono::high_resolution_clock::now();
                 auto duration = chrono::duration_cast<chrono::milliseconds>(end - start).count();
+
+                double result = best.fitness;
 
                 // Calcular Métricas
                 double lb = (double)p.cpm_lower_bound;
@@ -1048,6 +1147,8 @@ int main() {
                     << duration << "\n";
 
                 cout << "Makespan: " << result << " | Gap: " << gap << "% | Tempo: " << duration << "ms" << endl;
+                // Imprimir cronograma no console (agrupado por paciente quando o nome do arquivo indicar)
+                p.print_schedule_console(best, file_name);
             }
         }
     } catch (const fs::filesystem_error& e) {

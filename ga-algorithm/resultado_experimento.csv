@@ -1,5 +1,5 @@
 Instance,NumJobs,LowerBound(CPM),BestMakespan,Gap(%),Time(ms)
-folfiri_5_pacientes.sm,42,21,2000,9423.81,1130
-folfiri_50_pacientes.sm,402,21.00,20000.00,95138.10,97920
-folfiri_40_pacientes.sm,322,21.00,16000.00,76090.48,63134
-folfiri_25_pacientes.sm,202,21.00,10000.00,47519.05,24224
+folfiri_25_pacientes.sm,202,21,50,138.10,1036
+folfiri_40_pacientes.sm,322,21.00,80.00,280.95,2460
+folfiri_50_pacientes.sm,402,21.00,100.00,376.19,3827
+folfiri_5_pacientes.sm,42,21.00,21.00,0.00,115
