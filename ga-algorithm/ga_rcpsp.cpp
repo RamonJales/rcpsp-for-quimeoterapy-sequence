@@ -145,6 +145,7 @@ struct project {
     int number_of_nondummy_jobs;
     int number_of_renewable_resources;
     int horizon;
+    int cpm_lower_bound;
 
     vector<int> renewable_resource_availability;
     vector<individual> population;
@@ -154,6 +155,16 @@ struct project {
     project() {
         random_device rd;
         rng = mt19937(rd());
+        cpm_lower_bound = 0;
+    }
+
+    void clear() {
+        nodes.clear();
+        renewable_resource_availability.clear();
+        population.clear();
+        number_of_jobs = 0;
+        horizon = 0;
+        cpm_lower_bound = 0;
     }
 
     /**
@@ -167,6 +178,10 @@ struct project {
 
         calculate_forward_pass();
         calculate_backward_pass();
+
+        if (!nodes.empty()) {
+            cpm_lower_bound = nodes[number_of_jobs - 1].earliest_finish;
+        }
     }
 
     /**
@@ -178,126 +193,71 @@ struct project {
      * * @param instance_filepath Caminho do diretório onde o arquivo está.
      * @param instance_name Nome do arquivo (ex: "j1201_1.sm").
      */
-    void read_project(string instance_filepath, string instance_name) {
-        string full_path = concatanate_path_file_name(instance_filepath, instance_name);
+    void read_project(string full_path) {
+        clear();
         vector<string> file_lines = load_file_in_memory(full_path);
-
         if (file_lines.empty()) return;
 
         for (size_t line_index = 0; line_index < file_lines.size(); ++line_index) {
             string current_line = file_lines[line_index];
 
-            // 1. Parsing do Cabeçalho (Jobs, Horizon, Resources)
-            // O arquivo fornecido usa "jobs (incl. supersource/sink )"
             if (current_line.find("jobs (incl. supersource/sink )") != string::npos) {
-                // Ler número de jobs da linha ATUAL
                 stringstream ss_jobs(current_line);
-                string temp;
-                int val;
-                while (ss_jobs >> temp) {
-                    if (stringstream(temp) >> val) number_of_jobs = val;
-                }
+                string temp; int val;
+                while (ss_jobs >> temp) { if (stringstream(temp) >> val) number_of_jobs = val; }
                 number_of_nondummy_jobs = number_of_jobs - 2;
 
-                // Ler Horizon da PRÓXIMA linha (+1)
                 if (line_index + 1 < file_lines.size()) {
                     stringstream ss_hor(file_lines[line_index + 1]);
-                    while (ss_hor >> temp) {
-                        if (stringstream(temp) >> val) horizon = val;
-                    }
+                    while (ss_hor >> temp) { if (stringstream(temp) >> val) horizon = val; }
                 }
-
-                // Ler Recursos Renováveis da linha seguinte (+2)
-                // Ex: "renewable resources: 4"
                 if (line_index + 2 < file_lines.size()) {
                     stringstream ss_res(file_lines[line_index + 2]);
                     vector<int> numbers;
-                    while (ss_res >> temp) {
-                        if (stringstream(temp) >> val) numbers.push_back(val);
-                    }
-                    if (!numbers.empty()) {
-                        number_of_renewable_resources = numbers.back();
-                    }
+                    while (ss_res >> temp) { if (stringstream(temp) >> val) numbers.push_back(val); }
+                    if (!numbers.empty()) number_of_renewable_resources = numbers.back();
                 }
-
-                // Redimensionar vetor de nós
-                nodes.clear();
                 nodes.resize(number_of_jobs);
-                for (int i = 0; i < number_of_jobs; ++i) {
-                    nodes[i].id = i;
-                }
+                for (int i = 0; i < number_of_jobs; ++i) nodes[i].id = i;
             }
-            // 2. Parsing das Precedências
             else if (current_line.find("PRECEDENCE RELATIONS:") != string::npos) {
-                // Cabeçalho está em +1 ("jobnr. mode successors..."), dados começam em +2
                 size_t starting_line_index = line_index + 2;
-
                 for (int i = 0; i < number_of_jobs; ++i) {
                     if (starting_line_index + i >= file_lines.size()) break;
-
                     stringstream ss(file_lines[starting_line_index + i]);
                     int job_idx, mode, num_successors;
-                    
-                    // Formato: jobnr mode num_succ succ1 succ2 ...
                     ss >> job_idx >> mode >> num_successors;
-
                     for (int j = 0; j < num_successors; ++j) {
-                        int succ_id;
-                        ss >> succ_id;
-                        // Conversão de 1-based para 0-based
-                        int successor_node_name = succ_id - 1;
-                        nodes[i].successors.push_back(successor_node_name);
+                        int succ_id; ss >> succ_id;
+                        nodes[i].successors.push_back(succ_id - 1);
                     }
                 }
-
-                // Preencher predecessores automaticamente (baseado nos sucessores lidos)
                 for (int i = 0; i < number_of_jobs; ++i) {
-                    for (int succ_id : nodes[i].successors) {
-                        nodes[succ_id].predecessors.push_back(i);
-                    }
+                    for (int succ_id : nodes[i].successors) nodes[succ_id].predecessors.push_back(i);
                 }
             }
-            // 3. Parsing das Durações e Demandas de Recursos
             else if (current_line.find("REQUESTS/DURATIONS:") != string::npos) {
-                // Cabeçalho está em +1 ("jobnr. mode duration..."), dados começam em +2
-                // (Nota: O arquivo original pulava +3, o que causaria erro aqui)
                 size_t starting_line_index = line_index + 2;
-
                 for (int i = 0; i < number_of_jobs; ++i) {
                     if (starting_line_index + i >= file_lines.size()) break;
-
                     stringstream ss(file_lines[starting_line_index + i]);
                     int job_idx, mode, duration;
-                    
-                    // Formato: jobnr mode duration R1 R2 R3 R4
                     ss >> job_idx >> mode >> duration;
-                    
-                    // Como job_idx é lido sequencialmente, assumimos que nodes[i] corresponde à linha
                     nodes[i].duration_time = duration;
-
                     int req;
-                    // Lê apenas a quantidade de recursos que definimos anteriormente
                     for (int k = 0; k < number_of_renewable_resources; ++k) {
-                        if (ss >> req) {
-                            nodes[i].renewable_resource_requirements.push_back(req);
-                        }
+                        if (ss >> req) nodes[i].renewable_resource_requirements.push_back(req);
                     }
                 }
             }
-            // 4. Parsing da Disponibilidade de Recursos
             else if (current_line.find("RESOURCEAVAILABILITIES:") != string::npos) {
                 size_t starting_line_index = line_index + 2;
                 if (starting_line_index < file_lines.size()) {
                      stringstream ss(file_lines[starting_line_index]);
                      int avail;
-                     renewable_resource_availability.clear();
-                     while (ss >> avail) {
-                         renewable_resource_availability.push_back(avail);
-                     }
-                     // Ajuste de segurança caso leia mais do que o esperado
-                     if (renewable_resource_availability.size() > (size_t)number_of_renewable_resources) {
+                     while (ss >> avail) renewable_resource_availability.push_back(avail);
+                     if (renewable_resource_availability.size() > (size_t)number_of_renewable_resources)
                          renewable_resource_availability.resize(number_of_renewable_resources);
-                     }
                 }
             }
         }
@@ -331,11 +291,8 @@ struct project {
         cout << " JOB DETAILS (ID | Dur | Res | Succs | Preds)" << endl;
         cout << "----------------------------------------------------------" << endl;
 
-        // Cabeçalho da tabela simples
-        // Ajuste a largura (setw) conforme necessário se usar <iomanip>
         for (const auto& node : nodes) {
-            // ID e Duração
-            cout << "Job " << node.id + 1; // Mostrando 1-based para bater com o arquivo
+            cout << "Job " << node.id + 1;
             cout << "\t| Dur: " << node.duration_time;
             
             // Requisitos de Recursos
@@ -345,7 +302,6 @@ struct project {
             }
             cout << "]";
 
-            // Sucessores
             cout << "\t| Succ: {";
             for (size_t k = 0; k < node.successors.size(); ++k) {
                 cout << node.successors[k] + 1 << (k < node.successors.size() - 1 ? "," : "");
@@ -581,7 +537,7 @@ struct project {
     { 
         // 1. Avaliar os filhos usando o SGS passado
         for (individual &indiv : offsprings) {
-            (this->*sgs)(indiv); // Sintaxe para chamar método membro
+            (this->*sgs)(indiv);
         }
 
         // 2. Unir populações
@@ -755,15 +711,14 @@ struct project {
      * * @param individual O indivíduo (cromossomo) a ser avaliado. Passado por referência para atualizar o fitness.
      */
     void parallel_SGS(individual &individual) {
+        
+        vector<int> priority_map(number_of_jobs);
+        for(size_t i = 0; i < individual.activity_list.size(); ++i) {
+            priority_map[individual.activity_list[i]] = (int)i;
+        }
 
         for (auto& node : nodes) {
-            auto it = find(individual.activity_list.begin(), individual.activity_list.end(), node.id);
-
-            if (it != individual.activity_list.end()) {
-                node.priority_value = distance(individual.activity_list.begin(), it);
-            } else {
-                node.priority_value = number_of_jobs + 1;
-            }
+            node.priority_value = priority_map[node.id];
 
             node.start_time = -1;
             node.finish_time = -1;
@@ -772,10 +727,11 @@ struct project {
             node.scheduled = false;
         }
 
-        // matriz_recurso_kt[k][t] guarda a capacidade disponível do recurso k no tempo t
         vector<vector<int>> matriz_recurso_kt;
         for(int k : renewable_resource_availability) {
-            matriz_recurso_kt.push_back(vector<int>(horizon, k));
+            // Nota: Se o horizonte for muito curto para uma solução ruim,
+            // isso pode causar problemas se não tratarmos o limite abaixo.
+            matriz_recurso_kt.push_back(vector<int>(horizon + 1, k)); 
         }
 
         int scheduled_count = 0;
@@ -784,6 +740,12 @@ struct project {
         vector<int> active_jobs;
 
         while (scheduled_count < number_of_jobs) {
+            
+            if (current_time >= horizon) {
+                individual.fitness = (double)horizon * 2.0;
+                return;
+            }
+
             vector<int> eligibles;
 
             for (const auto& node : nodes) {
@@ -805,14 +767,12 @@ struct project {
                 return nodes[a].priority_value < nodes[b].priority_value;
             });
 
-            // 4.3 Tentar agendar as elegíveis no tempo atual (current_time)
             for (int node_id : eligibles) {
                 node& curr_node = nodes[node_id];
                 bool can_schedule = true;
 
-                // Verificar restrições de recursos de t até t + duração
                 if (current_time + curr_node.duration_time > horizon) {
-                    can_schedule = false; // Estourou o horizonte
+                    can_schedule = false; 
                 } else {
                     for (int k = 0; k < number_of_renewable_resources; k++) {
                         for (int t = current_time; t < current_time + curr_node.duration_time; t++) {
@@ -825,13 +785,11 @@ struct project {
                     }
                 }
 
-                // Se houver recursos, agenda a tarefa
                 if (can_schedule) {
                     curr_node.scheduled = true;
                     curr_node.start_time = current_time;
                     curr_node.finish_time = current_time + curr_node.duration_time;
                     
-                    // Atualizar matriz de recursos
                     for (int k = 0; k < number_of_renewable_resources; k++) {
                         for (int t = current_time; t < current_time + curr_node.duration_time; t++) {
                             matriz_recurso_kt[k][t] -= curr_node.renewable_resource_requirements[k];
@@ -843,18 +801,14 @@ struct project {
                 }
             }
 
-
-        // 4.4 Avançar o Tempo (Time Advance)
-            // Se já agendamos tudo, podemos parar
+            // Se agendamos tudo, sair
             if (scheduled_count == number_of_jobs) break;
 
-            // O próximo ponto de decisão é o menor tempo de término entre as atividades ativas
-            // que terminam APÓS o tempo atual.
-            int next_time = horizon;
-            
-            // Filtra jobs ativos que já terminaram no passado para manter a lista limpa (opcional, mas bom para performance)
-            // E busca o próximo tempo de salto
+            // Avançar o Tempo (Time Advance)
+            int next_time = horizon + 1; // Valor sentinela maior que horizonte
             bool found_next = false;
+            
+            // Limpa jobs ativos que já terminaram e busca o próximo salto de tempo
             for (auto it = active_jobs.begin(); it != active_jobs.end(); ) {
                 int job_finish = nodes[*it].finish_time;
                 
@@ -865,8 +819,6 @@ struct project {
                     }
                     ++it;
                 } else {
-                    // Job já terminou antes ou agora, não dita o futuro salto, mas libera recursos logicos
-                    // (no SGS paralelo a matriz R_kt já cuidou da liberação física)
                     it = active_jobs.erase(it); 
                 }
             }
@@ -874,26 +826,13 @@ struct project {
             if (found_next) {
                 current_time = next_time;
             } else {
-                // Se não encontrou próximo tempo e ainda faltam jobs, algo deu errado (ou só restam jobs sem duração?)
-                // Avança 1 unidade para evitar loop infinito em casos degenerados
-                if (active_jobs.empty() && !eligibles.empty()) {
-                   // Caso onde recursos estão bloqueados mas nenhum job está "ativo" (ex: setup time ou delay externo)
-                   // No RCPSP padrão isso raramente ocorre se a lógica estiver certa.
-                   // Vamos buscar o menor finish time geral > current_time
-                   int min_finish = horizon;
-                   for(const auto& n : nodes) {
-                       if (n.scheduled && n.finish_time > current_time) {
-                           min_finish = min(min_finish, n.finish_time);
-                       }
-                   }
-                   current_time = min_finish;
-                } else {
-                     current_time++;
-                }
+                // Se nenhum job ativo ditar o futuro, avançamos 1 unidade
+                // Isso acontece quando recursos estão bloqueados mas nenhum job está em andamento
+                current_time++;
             }
         }
 
-        // 5. Calcular Fitness (Makespan)
+        // Calcular Fitness (Makespan)
         int max_finish = 0;
         for (const auto& node : nodes) {
             if (node.finish_time > max_finish) {
@@ -903,42 +842,43 @@ struct project {
         individual.fitness = max_finish;
     }
 
-    void solve_instance_via_ga(int pop_size, int number_of_generations, double mutation_probability, void (project::*sgs)(individual &)) {
-        individual incumbent;
-
+    double solve_instance_via_ga(int pop_size, int generations, double mut_prob, void (project::*sgs)(individual &)) {
+        
+        this->population.clear();
         this->population = create_initial_population(pop_size);
+        
+        individual best_global; 
+        
+        // Avaliação inicial
+        for(size_t i = 0; i < population.size(); ++i) {
+            auto &ind = population[i];
+            (this->*sgs)(ind);
+            if(ind.fitness < best_global.fitness) best_global = ind;
+            if((i+1) % 10 == 0) cout << "[GA] Avaliado " << (i+1) << "/" << population.size() << " individuos" << endl;
+        }
 
-        for(auto &indiv : this->population) {
-            (this->*sgs)(indiv);
+        for(int g=0; g<generations; ++g) {
+            vector<individual> off = crossover(population);
             
-            if (indiv.fitness < incumbent.fitness) {
-                incumbent = indiv;
+            cout << "[GA]   Mutacao..." << endl;
+            off = mutate(off, mut_prob);
+            
+            for(auto &ind : off) (this->*sgs)(ind);
+
+            // Elitismo + Seleção (Rank and Reduce Simplificado)
+            population.insert(population.end(), off.begin(), off.end());
+            sort(population.begin(), population.end(), [](const individual& a, const individual& b){
+                return a.fitness < b.fitness;
+            });
+            population.resize(pop_size);
+
+            if(population[0].fitness < best_global.fitness) {
+                best_global = population[0];
             }
         }
-
-        for (int gen = 0; gen < number_of_generations; ++gen) {
-            cout << "gen: " << gen << endl;
-            cout << "incumbent fitness: " << incumbent.fitness << endl;
-            cout << "--" << endl;
-
-            // Crossover
-            vector<individual> offsprings = crossover(this->population);
-
-            // Mutação
-            offsprings = mutate(offsprings, mutation_probability);
-
-            // Rank and Reduce (Seleção e Sobrevivência)
-            // Retorna par: {nova_populacao, novo_incumbent}
-            pair<vector<individual>, individual> result = rank_and_reduce(this->population, offsprings, incumbent, sgs);
-            
-            this->population = result.first;
-            incumbent = result.second;
-        }
-
-        cout << "finished GA with fitness of: " << incumbent.fitness << endl;
+        cout << "[GA] Algoritmo finalizado! Melhor fitness: " << best_global.fitness << endl;
+        return best_global.fitness;
     }
-
-
 
     private:
     // --- Métodos Auxiliares Internos do project ---
@@ -1008,8 +948,7 @@ struct project {
             return instance_name;
 
         // Se não terminar com '/', adiciona.
-        // Nota: Se terminar com '\' (Windows), vai virar "\/", mas o Windows
-        // aceita.
+        // Nota: Se terminar com '\' (Windows), vai virar "\/", mas o Windows aceita.
         if (instance_filepath.back() != '/') {
             instance_filepath += "/";
         }
@@ -1048,30 +987,75 @@ struct project {
 
 
 int main() {
+    string folder_path = "../instances/instancias_geradas";
+    string output_csv = "resultado_experimento.csv";
+    
+    // Parâmetros do GA de acordo com o artigo
+    int pop_size = 40;
+    int gens = 25;
+    double mut = 0.05;
+
+    ofstream csv(output_csv);
+    if (!csv.is_open()) {
+        cerr << "Erro ao criar arquivo CSV." << endl;
+        return 1;
+    }
+
+    // Cabeçalho do CSV
+    csv << "Instance,NumJobs,LowerBound(CPM),BestMakespan,Gap(%),Time(ms)\n";
+    cout << "Iniciando experimentos...\n" << endl;
+
     project p;
 
-    string path = "../instances/instancias_geradas"; 
-    string file = "folfiri_25_pacientes.sm";
+    // Iterar sobre arquivos na pasta
+    try {
+        for (const auto& entry : fs::directory_iterator(folder_path)) {
+            if (entry.path().extension() == ".sm") {
+                string file_path = entry.path().string();
+                string file_name = entry.path().filename().string();
 
-    cout << ">>> Tentando ler o arquivo: " << path << "/" << file << endl;
+                cout << "Processando: " << file_name << "... ";
 
-    // 3. Chama o método de leitura
-    p.read_project(path, file);
+                // Carregar projeto
+                p.read_project(file_path);
+                
+                if (p.number_of_jobs == 0) {
+                    cout << "[ERRO Lendo]" << endl;
+                    continue;
+                }
 
-    // 4. (Opcional) Calcula o caminho crítico para verificar se a topologia (sucessores/predecessores) ficou consistente
-    // Isso preenche ES, EF, LS, LF
-    p.forward_backward_scheduling();
+                // Medir tempo
+                auto start = chrono::high_resolution_clock::now();
+                
+                // Rodar GA
+                double result = p.solve_instance_via_ga(pop_size, gens, mut, &project::parallel_SGS);
+                
+                auto end = chrono::high_resolution_clock::now();
+                auto duration = chrono::duration_cast<chrono::milliseconds>(end - start).count();
 
-    // 5. Imprime os dados para conferência
-    p.print_project();
+                // Calcular Métricas
+                double lb = (double)p.cpm_lower_bound;
+                double gap = 0.0;
+                if (lb > 0) gap = ((result - lb) / lb) * 100.0;
 
-    // Verificação rápida se leu algo
-    if (p.number_of_jobs > 0) {
-        cout << "\n>>> Sucesso! O projeto foi lido e carregado na memoria." << endl;
-        cout << "Horizonte do projeto: " << p.horizon << endl;
-    } else {
-        cerr << "\n>>> Erro: Parece que o projeto nao foi carregado. Verifique o caminho do arquivo." << endl;
+                // Escrever no CSV
+                csv << file_name << ","
+                    << p.number_of_jobs << ","
+                    << lb << ","
+                    << result << ","
+                    << fixed << setprecision(2) << gap << ","
+                    << duration << "\n";
+
+                cout << "Makespan: " << result << " | Gap: " << gap << "% | Tempo: " << duration << "ms" << endl;
+            }
+        }
+    } catch (const fs::filesystem_error& e) {
+        cerr << "Erro ao acessar diretorio: " << e.what() << endl;
+        return 1;
     }
+
+    csv.close();
+    cout << "\nExperimento finalizado! Resultados salvos em: " << output_csv << endl;
 
     return 0;
 }
