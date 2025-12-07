@@ -1,0 +1,214 @@
+# Instâncias RCPSP para Sequenciamento de Quimioterapia
+
+Este diretório contém instâncias do problema RCPSP (Resource-Constrained Project Scheduling Problem) modelando o protocolo de quimioterapia FOLFIRI.
+
+## 📁 Estrutura de Arquivos
+
+\`\`\`
+instances/
+├── folfiri_base_multirecurso.sm    # Arquivo base (1 paciente)
+├── instances_generator.py          # Script de geração
+├── instancias_geradas/             # Instâncias geradas
+│   ├── folfiri_5_pacientes.sm
+│   ├── folfiri_25_pacientes.sm
+│   ├── folfiri_40_pacientes.sm
+│   ├── folfiri_50_pacientes.sm
+│   ├── folfiri_RS_alto_A.sm
+│   ├── folfiri_RS_alto_B.sm
+│   ├── folfiri_RS_medio_A.sm
+│   ├── folfiri_RS_medio_B.sm
+│   ├── folfiri_RS_medio_C.sm
+│   ├── folfiri_RS_baixo_A.sm
+│   └── folfiri_RS_baixo_B.sm
+└── README.md
+\`\`\`
+
+## 📋 Arquivo Base
+
+### `folfiri_base_multirecurso.sm`
+
+Este é o **arquivo base** que representa um único paciente seguindo o protocolo FOLFIRI. Possui:
+
+- **10 atividades** (incluindo source/sink)
+- **4 recursos renováveis:**
+  - **R1**: Enfermeiro
+  - **R2**: Cadeira de Infusão
+  - **R3**: Médico
+  - **R4**: Farmacêutico
+
+#### Estrutura do Protocolo FOLFIRI (1 Paciente)
+
+\`\`\`
+Atividade 1 (source) → inicia 3 atividades paralelas:
+  → Atividade 2: Preparação enfermeiro (2h, R1)
+  → Atividade 3: Consulta médica (2h, R3)
+  → Atividade 4: Preparação farmacêutica (4h, R4)
+  
+Atividade 5: Início da infusão (1h, R1+R2)
+Atividade 6: Infusão principal (6h, R1+R2)
+Atividade 7: Infusão prolongada (8h, R1+R2)
+Atividade 8: Finalização (1h, R1+R2)
+Atividade 9: Liberação (2h, R1+R2)
+Atividade 10 (sink)
+\`\`\`
+
+**Disponibilidade padrão de recursos:** `10 10 10 10`
+
+## 🔧 Processo de Geração
+
+O script `instances_generator.py` contém dois geradores principais:
+
+### 1. Script 1: Variação de Resource Strength (RS)
+
+**Objetivo:** Testar diferentes níveis de disponibilidade de recursos mantendo um único paciente.
+
+**Método:**
+- Mantém estrutura base (10 atividades)
+- Modifica apenas a linha `RESOURCEAVAILABILITIES`
+- Gera 7 cenários diferentes
+
+**Instâncias geradas:**
+
+| Arquivo | R1 | R2 | R3 | R4 | Classificação |
+|---------|----|----|----|----|---------------|
+| `folfiri_RS_alto_A.sm` | 8 | 8 | 4 | 4 | Alto (recursos abundantes) |
+| `folfiri_RS_alto_B.sm` | 10 | 10 | 5 | 5 | Alto (recursos muito abundantes) |
+| `folfiri_RS_medio_A.sm` | 5 | 6 | 2 | 2 | Médio |
+| `folfiri_RS_medio_B.sm` | 4 | 5 | 2 | 1 | Médio |
+| `folfiri_RS_medio_C.sm` | 6 | 6 | 3 | 2 | Médio |
+| `folfiri_RS_baixo_A.sm` | 3 | 4 | 1 | 1 | Baixo (recursos escassos) |
+| `folfiri_RS_baixo_B.sm` | 3 | 3 | 2 | 1 | Baixo (recursos escassos) |
+
+### 2. Script 2: Múltiplos Pacientes
+
+**Objetivo:** Simular chegada simultânea de múltiplos pacientes ao centro de tratamento.
+
+**Método:**
+1. Lê a estrutura base (1 paciente = 8 atividades reais)
+2. Replica as atividades N vezes (N = número de pacientes)
+3. Ajusta as relações de precedência:
+   - Cada paciente mantém suas próprias dependências
+   - Todos iniciam do mesmo source (atividade 1)
+   - Todos terminam no mesmo sink (última atividade)
+4. Calcula novos IDs: `novo_id = (paciente × 8) + atividade_base`
+5. Ajusta o horizonte: `200 × N` unidades de tempo
+
+**Instâncias geradas:**
+
+| Arquivo | Pacientes | Atividades Totais | Horizonte |
+|---------|-----------|-------------------|-----------|
+| `folfiri_5_pacientes.sm` | 5 | 42 | 1000 |
+| `folfiri_25_pacientes.sm` | 25 | 202 | 5000 |
+| `folfiri_40_pacientes.sm` | 40 | 322 | 8000 |
+| `folfiri_50_pacientes.sm` | 50 | 402 | 10000 |
+
+**Fórmula:** `Atividades = (8 × N_pacientes) + 2`
+
+## 🚀 Como Executar
+
+\`\`\`bash
+cd instances
+python instances_generator.py
+\`\`\`
+
+### Saída Esperada
+
+\`\`\`
+--- Executando Script 1: Gerando Variantes de Recursos ---
+-> Gerado: instancias_geradas/folfiri_RS_alto_A.sm
+-> Gerado: instancias_geradas/folfiri_RS_alto_B.sm
+-> Gerado: instancias_geradas/folfiri_RS_medio_A.sm
+-> Gerado: instancias_geradas/folfiri_RS_medio_B.sm
+-> Gerado: instancias_geradas/folfiri_RS_medio_C.sm
+-> Gerado: instancias_geradas/folfiri_RS_baixo_A.sm
+-> Gerado: instancias_geradas/folfiri_RS_baixo_B.sm
+--- Script 1 Concluído ---
+
+--- Executando Script 2: Simulando 5 Pacientes ---
+-> Gerado: instancias_geradas/folfiri_5_pacientes.sm com 42 atividades.
+--- Script 2 Concluído ---
+
+--- Executando Script 2: Simulando 25 Pacientes ---
+-> Gerado: instancias_geradas/folfiri_25_pacientes.sm com 202 atividades.
+--- Script 2 Concluído ---
+
+--- Executando Script 2: Simulando 40 Pacientes ---
+-> Gerado: instancias_geradas/folfiri_40_pacientes.sm com 322 atividades.
+--- Script 2 Concluído ---
+
+--- Executando Script 2: Simulando 50 Pacientes ---
+-> Gerado: instancias_geradas/folfiri_50_pacientes.sm com 402 atividades.
+--- Script 2 Concluído ---
+\`\`\`
+
+## 📝 Formato do Arquivo .sm
+
+Os arquivos seguem o formato PSPLIB (Project Scheduling Problem Library):
+
+\`\`\`
+************************************************************************
+* file: [nome_do_arquivo]
+* - Instance: [descrição]
+* - nr. of activities: [total com source/sink]
+* - nr. of renewable resources: 4
+************************************************************************
+jobs (incl. supersource/sink ): [total]
+horizon:                         [tempo_máximo]
+renewable resources:             4
+
+PRECEDENCE RELATIONS:
+- jobnr. mode successors...
+  [job_id] [mode] [n_sucessores] [lista_de_sucessores]
+  ...
+
+REQUESTS/DURATIONS:
+- jobnr. mode duration R1 R2 R3 R4
+  [job_id] [mode] [duração] [req_R1] [req_R2] [req_R3] [req_R4]
+  ...
+
+RESOURCEAVAILABILITIES:
+R1 R2 R3 R4
+[disp_R1] [disp_R2] [disp_R3] [disp_R4]
+\`\`\`
+
+## 🎯 Casos de Uso
+
+### Testar Algoritmos com Diferentes Resource Strengths
+Use as instâncias `folfiri_RS_*.sm` para avaliar como diferentes níveis de recursos afetam o desempenho.
+
+### Testar Escalabilidade
+Use as instâncias de múltiplos pacientes (`5`, `25`, `40`, `50`) para avaliar escalabilidade de algoritmos.
+
+### Benchmark Completo
+Combine ambas as variações para criar um benchmark abrangente.
+
+## 📊 Características das Instâncias
+
+- **Formato**: PSPLIB (.sm)
+- **Tipo**: RCPSP (Resource-Constrained Project Scheduling Problem)
+- **Recursos**: Todos renováveis (não-consumíveis)
+- **Modos**: Single-mode (cada atividade tem apenas 1 modo)
+- **Relações de precedência**: Finish-to-Start (FS)
+- **Domínio**: Sequenciamento de quimioterapia (FOLFIRI)
+
+## ⚠️ Observações Importantes
+
+1. **Source/Sink**: Atividades 1 e última sempre têm duração 0 e não consomem recursos
+2. **Recursos**: Valores representam unidades disponíveis simultaneamente
+3. **Horizonte**: Estimativa superior do tempo total necessário
+4. **IDs contínuos**: Atividades sempre numeradas de 1 até N sem gaps
+
+## 🔍 Recursos Modelados
+
+| Recurso | Código | Descrição | Uso no Protocolo |
+|---------|--------|-----------|------------------|
+| Enfermeiro | R1 | Profissional de enfermagem | Preparação, administração e monitoramento |
+| Cadeira | R2 | Cadeira de infusão | Espaço físico para infusão |
+| Médico | R3 | Médico oncologista | Consulta e aprovação do tratamento |
+| Farmacêutico | R4 | Farmacêutico oncológico | Preparação dos medicamentos |
+
+---
+
+**Autor:** Ramon Jales  
+**Projeto:** RCPSP para Sequenciamento de Quimioterapia  
+**Última atualização:** Dezembro 2025
