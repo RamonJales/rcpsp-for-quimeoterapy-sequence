@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <random>
@@ -7,8 +8,14 @@
 #include <string>
 #include <vector>
 #include <unordered_set>
+#include <algorithm>
+#include <climits>
+#include <chrono>
+#include <filesystem>
+#include <iomanip>
 
 using namespace std;
+namespace fs = std::filesystem;
 
 /**
  * @brief Representa uma tarefa (job) no projeto RCPSP.
@@ -517,7 +524,7 @@ struct project {
             offspring.push_back(daughter);
 
             individual son;
-
+ 
             vector<int> father_input_s(father.activity_list.begin(),
                 father.activity_list.begin() + q);
 
@@ -546,7 +553,7 @@ struct project {
 
         for (auto &individual : offsprings) {
             for (size_t i = 0; i + 1 < individual.activity_list.size(); i++) {
-                uniform_int_distribution<double> dist(0.0, 1.0);
+                uniform_real_distribution<double> dist(0.0, 1.0);
                 double r = dist(rng);
 
                 if (r < mutation_probability) {
@@ -562,44 +569,64 @@ struct project {
         return offsprings;
     }
 
-    pair<vector<individual>, individual> rank_and_reduce(vector<individual> population, 
-        vector<individual> offsprings, individual incumbent, void (*sgs)(individual individual)) {
-
-        for (individual individual : offsprings) {
-            sgs(individual);
+    /**
+     * @brief Rank and Reduce: Avalia os filhos, une com a população atual, ordena e corta.
+     * Agora aceita ponteiro para função membro (project::*sgs).
+     */
+    pair<vector<individual>, individual> rank_and_reduce(
+        vector<individual> current_population, 
+        vector<individual> offsprings, 
+        individual incumbent, 
+        void (project::*sgs)(individual &)) 
+    { 
+        // 1. Avaliar os filhos usando o SGS passado
+        for (individual &indiv : offsprings) {
+            (this->*sgs)(indiv); // Sintaxe para chamar método membro
         }
 
-        vector<individual> new_population = population;
+        // 2. Unir populações
+        vector<individual> new_population = current_population;
         new_population.insert(new_population.end(), offsprings.begin(), offsprings.end());
 
+        // 3. Ordenar (Menor makespan é melhor)
         sort(new_population.begin(), new_population.end(), 
             [](const individual& a, const individual& b) { 
-                return a.fitness < b.fitness;
+                return a.fitness < b.fitness; 
         });
 
-        if (new_population.size() > population.size()) {
-            new_population.resize(population.size());
+        // 4. Reduzir para o tamanho original
+        if (new_population.size() > current_population.size()) {
+            new_population.resize(current_population.size());
         }
 
+        // 5. Atualizar Incumbent (Melhor global)
         if (new_population[0].fitness < incumbent.fitness) {
             incumbent = new_population[0];
         }
 
         return {new_population, incumbent};
-        
     }
 
-        void serial_SGS(individual individual) {
+    void serial_SGS(individual &individual) {
 
-            for (auto& node : nodes) {
-                node.priority_value = find(individual.activity_list.begin(), 
-                    individual.activity_list.end(), node) - individual.activity_list.begin();
-                node.start_time = -1;
-                node.finish_time = -1;
-                node.started = false;
-                node.finished = false;
-                node.scheduled = false;  
+        for (auto& node : nodes) {
+
+            auto it = find(individual.activity_list.begin(),
+                           individual.activity_list.end(),
+                           node.id);
+
+            if(it != individual.activity_list.end()) {
+                node.priority_value = distance(individual.activity_list.begin(), it);
+            } else {
+                node.priority_value = number_of_jobs + 1.0;
             }
+
+            node.start_time = -1;
+            node.finish_time = -1;
+            node.started = false;
+            node.finished = false;
+            node.scheduled = false;  
+        }
 
             vector<vector<int>> R_kt;
 
@@ -719,6 +746,199 @@ struct project {
             }
             individual.fitness = best;
     }
+
+    /**
+     * @brief Parallel Schedule Generation Scheme (SGS).
+     * Constrói um cronograma iterando sobre o tempo. Em cada ponto de decisão (t),
+     * tenta agendar o máximo de atividades elegíveis possível respeitando os recursos.
+     * Quando nada mais cabe em (t), avança para o próximo tempo de término de uma atividade.
+     * * @param individual O indivíduo (cromossomo) a ser avaliado. Passado por referência para atualizar o fitness.
+     */
+    void parallel_SGS(individual &individual) {
+
+        for (auto& node : nodes) {
+            auto it = find(individual.activity_list.begin(), individual.activity_list.end(), node.id);
+
+            if (it != individual.activity_list.end()) {
+                node.priority_value = distance(individual.activity_list.begin(), it);
+            } else {
+                node.priority_value = number_of_jobs + 1;
+            }
+
+            node.start_time = -1;
+            node.finish_time = -1;
+            node.started = false;
+            node.finished = false;
+            node.scheduled = false;
+        }
+
+        // matriz_recurso_kt[k][t] guarda a capacidade disponível do recurso k no tempo t
+        vector<vector<int>> matriz_recurso_kt;
+        for(int k : renewable_resource_availability) {
+            matriz_recurso_kt.push_back(vector<int>(horizon, k));
+        }
+
+        int scheduled_count = 0;
+        int current_time = 0;
+
+        vector<int> active_jobs;
+
+        while (scheduled_count < number_of_jobs) {
+            vector<int> eligibles;
+
+            for (const auto& node : nodes) {
+                if (!node.scheduled) {
+                    bool predecessors_finished = true;
+                    for (int pred_id : node.predecessors) {
+                        if (nodes[pred_id].finish_time == -1 || nodes[pred_id].finish_time > current_time) {
+                            predecessors_finished = false;
+                            break;
+                        }
+                    }
+                    if (predecessors_finished) {
+                        eligibles.push_back(node.id);
+                    }
+                }
+            }
+
+            sort(eligibles.begin(), eligibles.end(), [&](int a, int b) {
+                return nodes[a].priority_value < nodes[b].priority_value;
+            });
+
+            // 4.3 Tentar agendar as elegíveis no tempo atual (current_time)
+            for (int node_id : eligibles) {
+                node& curr_node = nodes[node_id];
+                bool can_schedule = true;
+
+                // Verificar restrições de recursos de t até t + duração
+                if (current_time + curr_node.duration_time > horizon) {
+                    can_schedule = false; // Estourou o horizonte
+                } else {
+                    for (int k = 0; k < number_of_renewable_resources; k++) {
+                        for (int t = current_time; t < current_time + curr_node.duration_time; t++) {
+                            if (curr_node.renewable_resource_requirements[k] > matriz_recurso_kt[k][t]) {
+                                can_schedule = false;
+                                break;
+                            }
+                        }
+                        if (!can_schedule) break;
+                    }
+                }
+
+                // Se houver recursos, agenda a tarefa
+                if (can_schedule) {
+                    curr_node.scheduled = true;
+                    curr_node.start_time = current_time;
+                    curr_node.finish_time = current_time + curr_node.duration_time;
+                    
+                    // Atualizar matriz de recursos
+                    for (int k = 0; k < number_of_renewable_resources; k++) {
+                        for (int t = current_time; t < current_time + curr_node.duration_time; t++) {
+                            matriz_recurso_kt[k][t] -= curr_node.renewable_resource_requirements[k];
+                        }
+                    }
+
+                    active_jobs.push_back(node_id);
+                    scheduled_count++;
+                }
+            }
+
+
+        // 4.4 Avançar o Tempo (Time Advance)
+            // Se já agendamos tudo, podemos parar
+            if (scheduled_count == number_of_jobs) break;
+
+            // O próximo ponto de decisão é o menor tempo de término entre as atividades ativas
+            // que terminam APÓS o tempo atual.
+            int next_time = horizon;
+            
+            // Filtra jobs ativos que já terminaram no passado para manter a lista limpa (opcional, mas bom para performance)
+            // E busca o próximo tempo de salto
+            bool found_next = false;
+            for (auto it = active_jobs.begin(); it != active_jobs.end(); ) {
+                int job_finish = nodes[*it].finish_time;
+                
+                if (job_finish > current_time) {
+                    if (job_finish < next_time) {
+                        next_time = job_finish;
+                        found_next = true;
+                    }
+                    ++it;
+                } else {
+                    // Job já terminou antes ou agora, não dita o futuro salto, mas libera recursos logicos
+                    // (no SGS paralelo a matriz R_kt já cuidou da liberação física)
+                    it = active_jobs.erase(it); 
+                }
+            }
+
+            if (found_next) {
+                current_time = next_time;
+            } else {
+                // Se não encontrou próximo tempo e ainda faltam jobs, algo deu errado (ou só restam jobs sem duração?)
+                // Avança 1 unidade para evitar loop infinito em casos degenerados
+                if (active_jobs.empty() && !eligibles.empty()) {
+                   // Caso onde recursos estão bloqueados mas nenhum job está "ativo" (ex: setup time ou delay externo)
+                   // No RCPSP padrão isso raramente ocorre se a lógica estiver certa.
+                   // Vamos buscar o menor finish time geral > current_time
+                   int min_finish = horizon;
+                   for(const auto& n : nodes) {
+                       if (n.scheduled && n.finish_time > current_time) {
+                           min_finish = min(min_finish, n.finish_time);
+                       }
+                   }
+                   current_time = min_finish;
+                } else {
+                     current_time++;
+                }
+            }
+        }
+
+        // 5. Calcular Fitness (Makespan)
+        int max_finish = 0;
+        for (const auto& node : nodes) {
+            if (node.finish_time > max_finish) {
+                max_finish = node.finish_time;
+            }
+        }
+        individual.fitness = max_finish;
+    }
+
+    void solve_instance_via_ga(int pop_size, int number_of_generations, double mutation_probability, void (project::*sgs)(individual &)) {
+        individual incumbent;
+
+        this->population = create_initial_population(pop_size);
+
+        for(auto &indiv : this->population) {
+            (this->*sgs)(indiv);
+            
+            if (indiv.fitness < incumbent.fitness) {
+                incumbent = indiv;
+            }
+        }
+
+        for (int gen = 0; gen < number_of_generations; ++gen) {
+            cout << "gen: " << gen << endl;
+            cout << "incumbent fitness: " << incumbent.fitness << endl;
+            cout << "--" << endl;
+
+            // Crossover
+            vector<individual> offsprings = crossover(this->population);
+
+            // Mutação
+            offsprings = mutate(offsprings, mutation_probability);
+
+            // Rank and Reduce (Seleção e Sobrevivência)
+            // Retorna par: {nova_populacao, novo_incumbent}
+            pair<vector<individual>, individual> result = rank_and_reduce(this->population, offsprings, incumbent, sgs);
+            
+            this->population = result.first;
+            incumbent = result.second;
+        }
+
+        cout << "finished GA with fitness of: " << incumbent.fitness << endl;
+    }
+
+
 
     private:
     // --- Métodos Auxiliares Internos do project ---
